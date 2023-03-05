@@ -4,6 +4,7 @@ from contextlib import suppress
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 USERS = {}
+HISTORY = []
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -13,6 +14,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         # Join room group
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+
+        for message in HISTORY:
+            await self.channel_layer.send(channel=self.channel_name, message=message)
 
         await self.accept()
 
@@ -37,6 +41,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     user = text_data_json['username']
                     if user not in USERS.values():
                         USERS[f"{self.scope['client'][0]}::{self.scope['client'][1]}"] = user
+                    else:
+                        await self.channel_layer.send(
+                            channel=self.channel_name,
+                            message={'type': 'error_message', 'error': f'User `{user}` already exists'}
+                        )
                 elif command == 'sendmessage':
                     user = USERS.get(f"{self.scope['client'][0]}::{self.scope['client'][1]}")
                     if user:
@@ -47,6 +56,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             self.room_group_name,
                             {'type': 'chat_message', 'username': user, 'message': message}
                         )
+                        HISTORY.append({'type': 'chat_message', 'username': user, 'message': message})
 
     # Receive message from room group
     async def chat_message(self, event):
@@ -55,3 +65,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         # Send message to WebSocket
         await self.send(text_data=json.dumps({'username': user, 'message': message}))
+
+    async def error_message(self, event):
+        message = event['error']
+        await self.send(text_data=json.dumps({'error': message}))
